@@ -3,57 +3,71 @@ package com.couponmoa.backend.couponmoagateway.config;
 import com.couponmoa.backend.couponmoagateway.common.exception.ApplicationException;
 import com.couponmoa.backend.couponmoagateway.common.exception.ErrorCode;
 import com.couponmoa.backend.couponmoagateway.common.service.RedisService;
-import com.couponmoa.backend.couponmoagateway.domain.user.dto.AuthUser;
-import com.couponmoa.backend.couponmoagateway.domain.user.enums.UserRole;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.MalformedJwtException;
-import io.jsonwebtoken.UnsupportedJwtException;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import lombok.NonNull;
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.context.SecurityContextHolder;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
-import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.util.StringUtils;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
+import reactor.core.publisher.Mono;
 
-import java.io.IOException;
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
 
 @Component
+@Slf4j
 @RequiredArgsConstructor
-public class JwtAuthenticationFilter extends OncePerRequestFilter {
+public class JwtAuthenticationFilter implements WebFilter {
 
-    private final JwtUtil jwtUtil;
+    @Value("${jwt.secret.key}")
+    private String secretKey;
+    private SecretKey key;
+
     private final RedisService redisService;
+    private static final String BEARER_PREFIX = "Bearer ";
+
+    @PostConstruct
+    public void init() {
+        log.info(">>> Loaded secret key: {}", secretKey);
+        key = Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
+    }
 
     @Override
-    protected void doFilterInternal(
-            HttpServletRequest httpRequest,
-            @NonNull HttpServletResponse httpResponse,
-            @NonNull FilterChain chain
-    ) throws ServletException, IOException {
-        String authorizationHeader = httpRequest.getHeader("Authorization");
+    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        String path = exchange.getRequest().getURI().getPath();
+        log.debug("요청 경로: {}", path);
+
+        if (isExcludedPath(path)) {
+            log.debug("인증 제외 경로: {}", path);
+            return chain.filter(exchange);
+        }
+
+        String authorizationHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
 
         if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
-            String jwt = jwtUtil.substringToken(authorizationHeader);
+            String jwt = substringToken(authorizationHeader);
             try {
-                Claims claims = jwtUtil.extractClaims(jwt);
-                String tokenType = claims.get("tokenType", String.class);
-                String redisAccessToken = redisService.get("access:" + claims.getSubject());
+                Claims claims = extractClaims(jwt);
+                validateTokenType(claims);
+                validateRedisToken(claims.getSubject(), jwt);
 
-                if ("refresh".equals(tokenType)) {
-                    throw new ApplicationException(ErrorCode.REFRESH_TOKEN_FORBIDDEN);
-                }
+                // 헤더에 정보 넣기
+                String userId = claims.getSubject();
+                String role = claims.get("userRole", String.class);
 
-                if(redisAccessToken == null || !jwt.equals(jwtUtil.substringToken(redisAccessToken))) {
-                    throw new ApplicationException(ErrorCode.INVALID_JWT);
-                }
+                ServerHttpRequest modifiedRequest = exchange.getRequest().mutate()
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", role)
+                        .build();
 
-                if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                    setAuthentication(claims);
-                }
+                ServerWebExchange mutatedExchange = exchange.mutate().request(modifiedRequest).build();
+                return chain.filter(mutatedExchange);
             } catch (SecurityException | MalformedJwtException e) {
                 throw new ApplicationException(ErrorCode.INVALID_JWT);
             } catch (ExpiredJwtException e) {
@@ -66,16 +80,48 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 throw new ApplicationException(ErrorCode.EXCEPTION);
             }
         }
-        chain.doFilter(httpRequest, httpResponse);
+        return chain.filter(exchange);
     }
 
-    private void setAuthentication(Claims claims) {
-        Long id = Long.valueOf(claims.getSubject());
-        String email = claims.get("email", String.class);
-        UserRole userRole = UserRole.of(claims.get("userRole", String.class));
-
-        AuthUser authUser = new AuthUser(id, email, userRole);
-        JwtAuthenticationToken authenticationToken = new JwtAuthenticationToken(authUser);
-        SecurityContextHolder.getContext().setAuthentication(authenticationToken);
+    private boolean isExcludedPath(String path) {
+        return path.startsWith("/api/v1/auth") ||
+                path.startsWith("/swagger-ui") ||
+                path.startsWith("/v3/api-docs") ||
+                path.startsWith("/actuator") ||
+                path.equals("/health") ||
+                path.equals("/error");
     }
+
+    private String substringToken(String tokenValue) {
+        if (StringUtils.hasText(tokenValue) && tokenValue.startsWith(BEARER_PREFIX)) {
+            return tokenValue.substring(7);
+        }
+        throw new ApplicationException(ErrorCode.TOKEN_NOT_FOUND);
+    }
+
+    private Claims extractClaims(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+
+        log.info("JWT 검증 완료 - userRole: {}, tokenType: {}", claims.get("userRole"), claims.get("tokenType"));
+        return claims;
+    }
+
+    private void validateTokenType(Claims claims) {
+        String tokenType = claims.get("tokenType", String.class);
+        if ("refresh".equals(tokenType)) {
+            throw new ApplicationException(ErrorCode.REFRESH_TOKEN_FORBIDDEN);
+        }
+    }
+
+    private void validateRedisToken(String userId, String jwt) {
+        String redisAccessToken = redisService.get("access:" + userId);
+        if (redisAccessToken == null || !jwt.equals(substringToken(redisAccessToken))) {
+            throw new ApplicationException(ErrorCode.INVALID_JWT);
+        }
+    }
+
 }

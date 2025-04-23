@@ -41,7 +41,6 @@ public class JwtAuthenticationFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, @NonNull WebFilterChain chain) {
-        log.info("필터 진입");
         String path = exchange.getRequest().getURI().getPath();
         log.info("요청 경로: {}", path);
 

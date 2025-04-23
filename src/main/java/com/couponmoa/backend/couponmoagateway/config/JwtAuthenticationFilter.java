@@ -41,11 +41,12 @@ public class JwtAuthenticationFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, @NonNull WebFilterChain chain) {
+        log.info("필터 진입");
         String path = exchange.getRequest().getURI().getPath();
-        log.debug("요청 경로: {}", path);
+        log.info("요청 경로: {}", path);
 
         if (isExcludedPath(path)) {
-            log.debug("인증 제외 경로: {}", path);
+            log.info("인증 제외 경로: {}", path);
             return chain.filter(exchange);
         }
 

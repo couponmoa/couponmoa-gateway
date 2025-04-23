@@ -10,7 +10,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -66,26 +65,6 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleRunTimeException(RuntimeException ex) {
         log.error("RuntimeException: " + ex.getMessage());
         return getErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "서버에 오류가 발생했습니다. 관리자에게 문의하세요.");
-    }
-
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleAccessDeniedException(AccessDeniedException ex) {
-        log.error("AccessDeniedException: " + ex.getMessage());
-        return getErrorResponse(HttpStatus.FORBIDDEN, "접근 권한이 없습니다.");
-    }
-
-    @ExceptionHandler(HandlerMethodValidationException.class)
-    public ResponseEntity<ErrorResponse> handleHandlerMethodValidationException(HandlerMethodValidationException ex) {
-        String firstErrorMessage = ex.getParameterValidationResults().stream().findFirst()
-                .map(result -> {
-                    String fieldName = result.getMethodParameter().getParameterName();
-                    String errorMessage = result.getResolvableErrors().stream()
-                            .map(MessageSourceResolvable::getDefaultMessage)
-                            .collect(Collectors.joining(", "));
-                    return fieldName + " " + errorMessage;
-                })
-                .orElseThrow(() -> new IllegalStateException("검증 에러가 반드시 존재해야 합니다."));
-        return getErrorResponse(HttpStatus.BAD_REQUEST, firstErrorMessage);
     }
 
     private ResponseEntity<ErrorResponse> getErrorResponse(HttpStatus status, String message) {

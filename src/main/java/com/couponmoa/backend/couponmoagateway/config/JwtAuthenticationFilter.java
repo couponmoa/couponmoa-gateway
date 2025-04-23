@@ -6,6 +6,7 @@ import com.couponmoa.backend.couponmoagateway.common.service.RedisService;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,7 +40,7 @@ public class JwtAuthenticationFilter implements WebFilter {
     }
 
     @Override
-    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+    public Mono<Void> filter(ServerWebExchange exchange, @NonNull WebFilterChain chain) {
         String path = exchange.getRequest().getURI().getPath();
         log.debug("요청 경로: {}", path);
 
@@ -86,7 +87,10 @@ public class JwtAuthenticationFilter implements WebFilter {
     private boolean isExcludedPath(String path) {
         return path.startsWith("/api/v1/auth") ||
                 path.startsWith("/swagger-ui") ||
+                path.equals("/swagger-ui.html") ||
+                path.startsWith("/swagger-resources") ||
                 path.startsWith("/v3/api-docs") ||
+                path.startsWith("/webjars") ||
                 path.startsWith("/actuator") ||
                 path.equals("/health") ||
                 path.equals("/error");

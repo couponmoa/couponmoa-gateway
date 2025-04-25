@@ -1,3 +1,15 @@
+server:
+  port: 3000
+
 spring:
   profiles:
-    active: local
+    active: ${SPRING_PROFILE:local}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always

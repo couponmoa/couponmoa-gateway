@@ -10,4 +10,4 @@ public class CouponmoaGatewayApplication {
         SpringApplication.run(CouponmoaGatewayApplication.class, args);
     }
 
-}
+} //

@@ -24,3 +24,8 @@ spring:
 #          uri: http://couponmoa-dev-coupon-service.couponmoa.local:8083
 #          predicates:
 #            - Path=/api/v1/coupons/**, /api/v2/coupons/**, /api/v1/user-coupons/**
+
+        - id: notification-server
+          uri: http://couponmoa-dev-notification-service.couponmoa.local:8084
+          predicates:
+            - Path=/api/v1/sse/**, /api/v2/sse/**

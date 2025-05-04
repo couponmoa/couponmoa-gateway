@@ -32,7 +32,6 @@
 - Spring Boot 3.x
 - Spring Cloud Gateway
 - JWT (Json Web Token)
-- Spring security
 - Gradle
 
 
